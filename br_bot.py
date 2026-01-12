@@ -3,17 +3,36 @@ import requests
 from telebot import types
 import urllib3
 import datetime
+import threading
+import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# Отключаем предупреждения о безопасности
+# --- 1. МИКРО-СЕРВЕР ДЛЯ RENDER (УСТРАНЯЕТ ОШИБКУ PORT) ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_health_server():
+    # Render сам назначит порт, мы его подхватываем
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server.serve_forever()
+
+# Запуск сервера в фоновом потоке
+threading.Thread(target=run_health_server, daemon=True).start()
+
+# --- 2. НАСТРОЙКИ БОТА ---
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- НАСТРОЙКИ ---
 TOKEN = '8259946892:AAHISfQ5T_5fjxUWb5mp86d8xo3xiAF_z3M'
 API_URL = "https://blackrussia.online/api/gameservers/" 
 
 bot = telebot.TeleBot(TOKEN)
 
-# ПОЛНАЯ БАЗА 90 СЕРВЕРОВ
+# ВНИМАНИЕ: Вставь сюда свой ПОЛНЫЙ список из 90 серверов!
 FORUM_DATA = {
     "1": ("red", "18"), "2": ("green", "19"), "3": ("blue", "133"), "4": ("yellow", "169"), 
     "5": ("orange", "246"), "6": ("purple", "286"), "7": ("lime", "326"), "8": ("pink", "368"), 
@@ -59,7 +78,6 @@ def format_all_servers(servers):
         online = s.get('online', 0)
         max_p = 1300 if s.get('max_players', 1300) <= 1000 else s.get('max_players', 1300)
         total += online
-        
         status = "🔴" if online >= (max_p * 0.95) else "🟢"
         
         forum_info = FORUM_DATA.get(s_id)
@@ -68,7 +86,7 @@ def format_all_servers(servers):
             url = f"https://forum.blackrussia.online/forums/Сервер-№{s_id}-{slug}.{f_id}/"
             server_display = f"[{name_str}]({url})"
         else: server_display = name_str
-            
+        
         text += f"{status} **{server_display}**: **{online}** / **{max_p}**\n"
         
     text += (
@@ -118,40 +136,27 @@ def handle_callbacks(call):
 def execute_search(message):
     user_input = message.text.strip()
     if not user_input.isdigit(): return
-    
     data = get_data()
     server = next((s for s in data if str(s.get('id')) == user_input), None)
-    
     if server:
         name_str = server.get('name', '???').upper()
         online = server.get('online', 0)
         max_p = 1300 if server.get('max_players', 1300) <= 1000 else server.get('max_players', 1300)
-        
         forum_info = FORUM_DATA.get(user_input)
         server_display = name_str
         link_str = ""
-        
         if forum_info:
             slug, f_id = forum_info
             url = f"https://forum.blackrussia.online/forums/Сервер-№{user_input}-{slug}.{f_id}/"
             server_display = f"[{name_str}]({url})"
             link_str = f"\n\n🔗 [Открыть раздел на форуме]({url})"
-        
         res = (f"📍 **Сервер #{user_input} — {server_display}**\n\n"
                f"👤 Онлайн: **{online}** / **{max_p}**\n"
                f"📊 Нагрузка: **{int((online/max_p)*100)}%**{link_str}")
-        
         bot.send_message(message.chat.id, res, parse_mode="Markdown", 
                          reply_markup=get_main_keyboard(), disable_web_page_preview=True)
-    else:
-        bot.send_message(message.chat.id, f"🔍 Сервер №{user_input} не найден.", reply_markup=get_main_keyboard())
 
-# --- ЗАПУСК ---
 if __name__ == "__main__":
     now = datetime.datetime.now().strftime("%H:%M:%S")
-    print("⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯")
-    print(f"[{now}] >>> БОТ УСПЕШНО ЗАПУЩЕН!")
-    print(f"[{now}] >>> БАЗА ДАННЫХ: 90 СЕРВЕРОВ ГОТОВЫ.")
-    print(f"[{now}] >>> СТАТУС: МОНИТОРИНГ ОНЛАЙНА АКТИВЕН.")
-    print("⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯")
+    print(f"[{now}] >>> БОТ И ВЕБ-СЕРВЕР ДЛЯ RENDER ЗАПУЩЕНЫ!")
     bot.polling(none_stop=True)
