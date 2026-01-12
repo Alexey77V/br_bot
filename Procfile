@@ -1,0 +1,1 @@
+worker: python br_bot.py
